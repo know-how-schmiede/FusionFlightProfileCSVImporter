@@ -1,7 +1,9 @@
 import adsk.core
 import adsk.fusion
+import math
 import os
 import re
+import traceback
 from ...lib import fusionAddInUtils as futil
 from ... import config
 
@@ -74,6 +76,31 @@ def _profile_name_from_path(file_path):
     name, _ = os.path.splitext(base_name)
     return name or "Profile"
 
+
+def _compute_leading_edge(points, x_tol=1e-6):
+    min_x = min(point[0] for point in points)
+    near_le = [point[1] for point in points if abs(point[0] - min_x) <= x_tol]
+    if not near_le:
+        return min_x, 0.0
+    avg_y = sum(near_le) / len(near_le)
+    return min_x, avg_y
+
+
+def _rotate_points(points, angle_rad, pivot):
+    if abs(angle_rad) < 1e-12:
+        return points
+
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    px, py = pivot
+    rotated = []
+    for x_val, y_val in points:
+        dx = x_val - px
+        dy = y_val - py
+        rx = px + dx * cos_a - dy * sin_a
+        ry = py + dx * sin_a + dy * cos_a
+        rotated.append((rx, ry))
+    return rotated
 
 def _group_by_x(points):
     sorted_points = sorted(points, key=lambda p: p[0])
@@ -192,10 +219,14 @@ def _create_offset_plane(component, base_plane, offset_value):
     return planes.add(plane_input)
 
 
-def _draw_profile(sketch, points):
+def _draw_profile(sketch, points, rotation_rad=0.0, pivot=None):
     lower_pts, upper_pts = _split_profile(points)
     if len(lower_pts) < 2 or len(upper_pts) < 2:
         raise ValueError("Not enough points to build upper and lower curves.")
+
+    if pivot is not None and abs(rotation_rad) > 1e-12:
+        lower_pts = _rotate_points(lower_pts, rotation_rad, pivot)
+        upper_pts = _rotate_points(upper_pts, rotation_rad, pivot)
 
     lower_3d = [adsk.core.Point3D.create(x_val, y_val, 0) for x_val, y_val in lower_pts]
     upper_3d = [adsk.core.Point3D.create(x_val, y_val, 0) for x_val, y_val in upper_pts]
@@ -272,47 +303,56 @@ def stop():
 def command_created(args: adsk.core.CommandCreatedEventArgs):
     futil.log(f'{CMD_NAME} Command Created Event')
 
-    inputs = args.command.commandInputs
+    try:
+        inputs = args.command.commandInputs
 
-    sketch_input = inputs.addSelectionInput(
-        "targetSketch",
-        "Target Sketch or Plane",
-        "Select a sketch, construction plane, or planar face for the first profile.",
-    )
-    sketch_input.addSelectionFilter("Sketches")
-    sketch_input.addSelectionFilter("ConstructionPlanes")
-    sketch_input.addSelectionFilter("PlanarFaces")
-    sketch_input.setSelectionLimits(1, 1)
+        sketch_input = inputs.addSelectionInput(
+            "targetSketch",
+            "Target Sketch or Plane",
+            "Select a sketch, construction plane, or planar face for the first profile.",
+        )
+        sketch_input.addSelectionFilter("Sketches")
+        sketch_input.addSelectionFilter("ConstructionPlanes")
+        sketch_input.addSelectionFilter("PlanarFaces")
+        sketch_input.setSelectionLimits(1, 1)
 
-    active_sketch = adsk.fusion.Sketch.cast(app.activeEditObject)
-    if active_sketch:
-        sketch_input.addSelection(active_sketch)
+        active_sketch = adsk.fusion.Sketch.cast(app.activeEditObject)
+        if active_sketch:
+            sketch_input.addSelection(active_sketch)
 
-    default_units = app.activeProduct.unitsManager.defaultLengthUnits
-    default_depth = adsk.core.ValueInput.createByString("1")
-    default_offset = adsk.core.ValueInput.createByString("0")
+        units_manager = app.activeProduct.unitsManager if app.activeProduct else None
+        default_units = units_manager.defaultLengthUnits if units_manager else "cm"
+        default_angle_units = (
+            getattr(units_manager, "defaultAngleUnits", "deg") if units_manager else "deg"
+        )
+        default_depth = adsk.core.ValueInput.createByString("1")
+        default_offset = adsk.core.ValueInput.createByString("0")
+        default_angle = adsk.core.ValueInput.createByString("0")
 
-    profile1_group = inputs.addGroupCommandInput("profile1Group", "Profile 1")
-    profile1_group.isExpanded = True
-    profile1_inputs = profile1_group.children
-    profile1_inputs.addBoolValueInput("browseCsv", "Browse...", False, "", False)
-    profile1_inputs.addStringValueInput("csvPath", "CSV File", "")
-    profile1_inputs.addValueInput("profileDepth", "Profile Depth", default_units, default_depth)
-    profile1_inputs.addBoolValueInput("mirrorProfile", "Mirror", True, "", False)
+        profile1_group = inputs.addGroupCommandInput("profile1Group", "Profile 1")
+        profile1_group.isExpanded = True
+        profile1_inputs = profile1_group.children
+        profile1_inputs.addBoolValueInput("browseCsv", "Browse...", False, "", False)
+        profile1_inputs.addStringValueInput("csvPath", "CSV File", "")
+        profile1_inputs.addValueInput("profileDepth", "Profile Depth", default_units, default_depth)
+        profile1_inputs.addBoolValueInput("mirrorProfile", "Mirror", True, "", False)
 
-    profile2_group = inputs.addGroupCommandInput("profile2Group", "Profile 2")
-    profile2_group.isExpanded = True
-    profile2_inputs = profile2_group.children
-    profile2_inputs.addBoolValueInput("browseCsv2", "Browse...", False, "", False)
-    profile2_inputs.addStringValueInput("csvPath2", "CSV File", "")
-    profile2_inputs.addValueInput("profileDepth2", "Profile Depth", default_units, default_depth)
-    profile2_inputs.addBoolValueInput("mirrorProfile2", "Mirror", True, "", False)
-    profile2_inputs.addValueInput("profileOffset", "Second Profile Offset", default_units, default_offset)
-    profile2_inputs.addBoolValueInput("createSolid", "Create Solid (Loft)", True, "", False)
+        profile2_group = inputs.addGroupCommandInput("profile2Group", "Profile 2")
+        profile2_group.isExpanded = True
+        profile2_inputs = profile2_group.children
+        profile2_inputs.addBoolValueInput("browseCsv2", "Browse...", False, "", False)
+        profile2_inputs.addStringValueInput("csvPath2", "CSV File", "")
+        profile2_inputs.addValueInput("profileDepth2", "Profile Depth", default_units, default_depth)
+        profile2_inputs.addBoolValueInput("mirrorProfile2", "Mirror", True, "", False)
+        profile2_inputs.addValueInput("profileOffset", "Second Profile Offset", default_units, default_offset)
+        profile2_inputs.addValueInput("profileAngle2", "Profile 2 Rotation", default_angle_units, default_angle)
+        profile2_inputs.addBoolValueInput("createSolid", "Create Solid (Loft)", True, "", False)
 
-    futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
-    futil.add_handler(args.command.inputChanged, command_input_changed, local_handlers=local_handlers)
-    futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
+        futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
+        futil.add_handler(args.command.inputChanged, command_input_changed, local_handlers=local_handlers)
+        futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
+    except Exception:
+        ui.messageBox("Command creation failed:\n{}".format(traceback.format_exc()))
 
 
 def command_execute(args: adsk.core.CommandEventArgs):
@@ -350,6 +390,8 @@ def command_execute(args: adsk.core.CommandEventArgs):
     mirror_profile = mirror_input.value
     mirror_input2 = inputs.itemById("mirrorProfile2")
     mirror_profile2 = mirror_input2.value
+    angle_input2 = inputs.itemById("profileAngle2")
+    angle_value2 = angle_input2.value
     create_solid_input = inputs.itemById("createSolid")
     create_solid = create_solid_input.value
 
@@ -374,6 +416,7 @@ def command_execute(args: adsk.core.CommandEventArgs):
         return
     if mirror_profile:
         points = [(x_val, -y_val) for x_val, y_val in points]
+    lead_edge = _compute_leading_edge(points)
 
     points2 = None
     if has_second:
@@ -415,7 +458,7 @@ def command_execute(args: adsk.core.CommandEventArgs):
         sketch2 = component.sketches.add(offset_plane)
         sketch2.name = _profile_name_from_path(file_path2)
         try:
-            _draw_profile(sketch2, points2)
+            _draw_profile(sketch2, points2, rotation_rad=-angle_value2, pivot=lead_edge)
         except ValueError as exc:
             ui.messageBox(str(exc))
             return

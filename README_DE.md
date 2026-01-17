@@ -10,7 +10,7 @@ Fusion 360 Add-in zum Import einer Tragflaechenprofil-CSV in eine ausgewaehlte S
 1. "Import Airfoil CSV" im Volumenkoerper > Erstellen-Panel ausfuehren.
 2. Zielskizze oder Ebene fuer Profil 1 waehlen.
 3. In der Gruppe "Profile 1" CSV-Datei waehlen, Profiltiefe setzen und optional spiegeln.
-4. In der Gruppe "Profile 2" CSV-Datei waehlen, Profiltiefe setzen, optional spiegeln und den Abstand angeben.
+4. In der Gruppe "Profile 2" CSV-Datei waehlen, Profiltiefe setzen, optional spiegeln, den Abstand und den Drehwinkel angeben.
 5. Optional "Create Solid (Loft)" aktivieren, um einen Koerper zwischen den Profilen zu erzeugen (Skizzen werden danach ausgeblendet).
 6. OK klicken, um zwei geschlossene Profile aus Splines und Abschlusslinien zu erzeugen.
 

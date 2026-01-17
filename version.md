@@ -1,5 +1,9 @@
 # Changes
 
+## Version 0.3.0 - 2026-01-17
+
+- Option Schränkung
+
 ## Version 0.2.2 - 2026-01-17
 
 - Option Volumenkörper erstellen
