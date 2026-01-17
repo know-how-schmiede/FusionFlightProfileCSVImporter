@@ -8,9 +8,10 @@ Fusion 360 add-in to import an airfoil profile CSV into a selected sketch or pla
 
 ## Use
 1. Run "Import Airfoil CSV" from the Solid > Create panel.
-2. Select a target sketch or plane.
-3. Browse for a CSV file and set the desired profile depth.
-4. Click OK to create a closed profile using lines.
+2. Select a target sketch or plane for profile 1.
+3. Choose CSV files for profile 1 and profile 2.
+4. Set the profile depth and the offset distance for profile 2.
+5. Click OK to create two closed profiles using lines.
 
 CSV format: each line should contain two numeric values (x, y). Extra columns are ignored.
 
