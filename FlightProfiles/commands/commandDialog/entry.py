@@ -221,6 +221,28 @@ def _draw_profile(sketch, points):
         sketch_lines.addByTwoPoints(te_lower_pt, te_upper_pt)
 
 
+def _get_primary_profile(sketch):
+    if sketch.profiles.count == 0:
+        return None
+
+    primary = None
+    max_area = -1.0
+    for profile in sketch.profiles:
+        try:
+            area = abs(
+                profile.areaProperties(
+                    adsk.fusion.CalculationAccuracy.MediumCalculationAccuracy
+                ).area
+            )
+        except Exception:
+            area = 0.0
+        if area > max_area:
+            max_area = area
+            primary = profile
+
+    return primary
+
+
 def start():
     cmd_def = ui.commandDefinitions.addButtonDefinition(
         CMD_ID, CMD_NAME, CMD_DESCRIPTION, ICON_FOLDER
@@ -266,22 +288,27 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     if active_sketch:
         sketch_input.addSelection(active_sketch)
 
-    inputs.addBoolValueInput("browseCsv", "Browse... (Profile 1)", False, "", False)
-    inputs.addStringValueInput("csvPath", "CSV File (Profile 1)", "")
-
-    inputs.addBoolValueInput("browseCsv2", "Browse... (Profile 2)", False, "", False)
-    inputs.addStringValueInput("csvPath2", "CSV File (Profile 2)", "")
-
     default_units = app.activeProduct.unitsManager.defaultLengthUnits
     default_depth = adsk.core.ValueInput.createByString("1")
-    inputs.addValueInput("profileDepth", "Profile Depth (Profile 1)", default_units, default_depth)
-    inputs.addBoolValueInput("mirrorProfile", "Mirror (Profile 1)", True, "", False)
-
-    inputs.addValueInput("profileDepth2", "Profile Depth (Profile 2)", default_units, default_depth)
-    inputs.addBoolValueInput("mirrorProfile2", "Mirror (Profile 2)", True, "", False)
-
     default_offset = adsk.core.ValueInput.createByString("0")
-    inputs.addValueInput("profileOffset", "Second Profile Offset", default_units, default_offset)
+
+    profile1_group = inputs.addGroupCommandInput("profile1Group", "Profile 1")
+    profile1_group.isExpanded = True
+    profile1_inputs = profile1_group.children
+    profile1_inputs.addBoolValueInput("browseCsv", "Browse...", False, "", False)
+    profile1_inputs.addStringValueInput("csvPath", "CSV File", "")
+    profile1_inputs.addValueInput("profileDepth", "Profile Depth", default_units, default_depth)
+    profile1_inputs.addBoolValueInput("mirrorProfile", "Mirror", True, "", False)
+
+    profile2_group = inputs.addGroupCommandInput("profile2Group", "Profile 2")
+    profile2_group.isExpanded = True
+    profile2_inputs = profile2_group.children
+    profile2_inputs.addBoolValueInput("browseCsv2", "Browse...", False, "", False)
+    profile2_inputs.addStringValueInput("csvPath2", "CSV File", "")
+    profile2_inputs.addValueInput("profileDepth2", "Profile Depth", default_units, default_depth)
+    profile2_inputs.addBoolValueInput("mirrorProfile2", "Mirror", True, "", False)
+    profile2_inputs.addValueInput("profileOffset", "Second Profile Offset", default_units, default_offset)
+    profile2_inputs.addBoolValueInput("createSolid", "Create Solid (Loft)", True, "", False)
 
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
     futil.add_handler(args.command.inputChanged, command_input_changed, local_handlers=local_handlers)
@@ -323,6 +350,8 @@ def command_execute(args: adsk.core.CommandEventArgs):
     mirror_profile = mirror_input.value
     mirror_input2 = inputs.itemById("mirrorProfile2")
     mirror_profile2 = mirror_input2.value
+    create_solid_input = inputs.itemById("createSolid")
+    create_solid = create_solid_input.value
 
     path_input2 = inputs.itemById("csvPath2")
     file_path2 = path_input2.value.strip()
@@ -390,6 +419,24 @@ def command_execute(args: adsk.core.CommandEventArgs):
         except ValueError as exc:
             ui.messageBox(str(exc))
             return
+
+        if create_solid:
+            profile1 = _get_primary_profile(sketch)
+            profile2 = _get_primary_profile(sketch2)
+            if not profile1 or not profile2:
+                ui.messageBox("Unable to create loft: missing closed profile.")
+                return
+
+            loft_features = component.features.loftFeatures
+            loft_input = loft_features.createInput(
+                adsk.fusion.FeatureOperations.NewBodyFeatureOperation
+            )
+            loft_input.isSolid = True
+            loft_input.loftSections.add(profile1)
+            loft_input.loftSections.add(profile2)
+            loft_features.add(loft_input)
+            sketch.isVisible = False
+            sketch2.isVisible = False
 
 
 def command_input_changed(args: adsk.core.InputChangedEventArgs):

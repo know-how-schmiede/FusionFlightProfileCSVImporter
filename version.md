@@ -1,5 +1,10 @@
 # Changes
 
+## Version 0.2.2 - 2026-01-17
+
+- Option Volumenkörper erstellen
+- Skizzen nach der Erhebnung ausblenden
+
 ## Version 0.2.1 - 2026-01-17
 
 - Skizzenname = importiertes Profil
