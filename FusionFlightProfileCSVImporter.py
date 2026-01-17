@@ -231,21 +231,19 @@ class CommandExecuteHandler(adsk.core.CommandEventHandler):
                 design = adsk.fusion.Design.cast(_app.activeProduct)
                 rootComp = design.rootComponent
                 
-                # Get the construction plane
-                planes = rootComp.constructionPlanes
-                planeInput = planes.createInput()
-                
+                # Get the selected construction plane
                 planeIndex = planeDropdown.selectedItem.index
+                selectedPlane = None
                 if planeIndex == 0:  # XY Plane
-                    planeInput.setByPlane(rootComp.xYConstructionPlane)
+                    selectedPlane = rootComp.xYConstructionPlane
                 elif planeIndex == 1:  # XZ Plane
-                    planeInput.setByPlane(rootComp.xZConstructionPlane)
+                    selectedPlane = rootComp.xZConstructionPlane
                 else:  # YZ Plane
-                    planeInput.setByPlane(rootComp.yZConstructionPlane)
+                    selectedPlane = rootComp.yZConstructionPlane
                 
-                # Create sketch
+                # Create sketch on the selected plane
                 sketches = rootComp.sketches
-                sketch = sketches.add(rootComp.xYConstructionPlane)
+                sketch = sketches.add(selectedPlane)
             
             # Create entities based on style
             if styleIndex == 0:  # 3D Spline
@@ -285,10 +283,7 @@ def readCSVFile(filename, unitKey):
                 if not row or len(row) == 0:
                     continue
                 
-                # Skip header rows (non-numeric)
-                if not row[0].replace('.', '', 1).replace('-', '', 1).replace('+', '', 1).isdigit():
-                    continue
-                
+                # Try to parse as numeric data
                 try:
                     # Expect at least X, Y values, Z is optional
                     x = float(row[0]) * conversion
@@ -300,7 +295,7 @@ def readCSVFile(filename, unitKey):
                     points.append(point)
                     
                 except (ValueError, IndexError):
-                    # Skip invalid rows
+                    # Skip invalid rows (headers or non-numeric data)
                     continue
     
     except Exception as e:
