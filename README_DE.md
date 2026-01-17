@@ -1,14 +1,19 @@
-# FusionFlightProfileCSVImporter
+# FlightProfiles (Fusion 360 Add-in)
 
-Fusion 360 Add-in zum Import einer Tragflaechenprofil-CSV in eine ausgewaehlte Skizze und zum Erzeugen einer Fitted Spline.
+Fusion 360 Add-in zum Import einer Tragflaechenprofil-CSV in eine ausgewaehlte Skizze oder Ebene und zum Erzeugen eines geschlossenen Profils.
 
 ## Installation
-1. Kopiere den Ordner `FusionFlightProfileCSVImporter` (innerhalb dieses Repos) in dein Fusion 360 AddIns-Verzeichnis.
-2. In Fusion 360 das Add-in "FusionFlightProfileCSVImporter" in den Add-Ins aktivieren.
+1. Kopiere den Ordner `FlightProfiles` in dein Fusion 360 AddIns-Verzeichnis.
+2. In Fusion 360 das Add-in "FlightProfiles" in den Add-Ins aktivieren.
 
 ## Verwendung
-1. Skizze oeffnen oder erstellen.
-2. "Import Airfoil CSV" im Sketch > Create-Panel ausfuehren.
-3. Zielskizze waehlen, CSV-Datei auswaehlen und OK klicken.
+1. "Import Airfoil CSV" im Volumenkoerper > Erstellen-Panel ausfuehren.
+2. Zielskizze oder Ebene waehlen.
+3. CSV-Datei auswaehlen und die Profiltiefe angeben.
+4. OK klicken, um ein geschlossenes Profil aus Linien zu erzeugen.
 
 CSV-Format: Jede Zeile enthaelt zwei numerische Werte (x, y). Weitere Spalten werden ignoriert.
+
+## Versionierung
+- Version in `FlightProfiles/version.py` pflegen.
+- `FlightProfiles/FlightProfiles.manifest` und `version.md` synchron halten.

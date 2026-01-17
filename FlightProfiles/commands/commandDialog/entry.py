@@ -10,7 +10,7 @@ ui = app.userInterface
 
 CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_importAirfoilCsv'
 CMD_NAME = 'Import Airfoil CSV'
-CMD_DESCRIPTION = 'Import an airfoil profile CSV into a selected sketch as a fitted spline.'
+CMD_DESCRIPTION = f'Import an airfoil profile CSV into a selected sketch. (v{config.VERSION})'
 
 IS_PROMOTED = True
 
