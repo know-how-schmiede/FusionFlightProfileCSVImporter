@@ -16,6 +16,11 @@ Fusion 360 Add-in zum Import einer Tragflaechenprofil-CSV in eine ausgewaehlte S
 
 CSV-Format: Jede Zeile enthaelt zwei numerische Werte (x, y). Weitere Spalten werden ignoriert.
 
+CSV-Pruefung und Korrektur:
+- Erwartete Reihenfolge: Start an der Hinterkante oben (x nahe max, y >= 0), zur Nase, dann an der Unterseite zur Hinterkante zurueck.
+- Wenn Punkte zwischen Ober- und Unterseite springen oder die Datei mit mehrfachen Hinterkanten-Zeilen endet, schreibt das Add-in eine korrigierte Datei mit dem Suffix `_sort` und verwendet diese automatisch.
+- Die korrigierte Datei behaelt Trennzeichen/Dezimalformat bei und schreibt Z=0, wenn die Quelle drei Spalten enthaelt.
+
 ## Versionierung
 - Version in `FlightProfiles/version.py` pflegen.
 - `FlightProfiles/FlightProfiles.manifest` und `version.md` synchron halten.

@@ -16,6 +16,11 @@ Fusion 360 add-in to import an airfoil profile CSV into a selected sketch or pla
 
 CSV format: each line should contain two numeric values (x, y). Extra columns are ignored.
 
+CSV validation and correction:
+- Expected order: start at trailing edge upper (x near max, y >= 0), move to the leading edge, then return along the lower surface to the trailing edge.
+- If points alternate between upper/lower surfaces or the file ends with repeated trailing-edge rows, the add-in writes a corrected file with a `_sort` suffix and uses it automatically.
+- The corrected file keeps the original delimiter/decimal format and writes Z=0 when the source CSV has three columns.
+
 ## Versioning
 - Update `FlightProfiles/version.py` for the code version.
 - Keep `FlightProfiles/FlightProfiles.manifest` and `version.md` in sync.
