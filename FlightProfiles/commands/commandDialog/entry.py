@@ -59,6 +59,125 @@ def _parse_profile_points(file_path):
     return points
 
 
+def _validate_profile_sequence(points):
+    if len(points) < 3:
+        return "Not enough points to validate profile order."
+
+    x_vals = [x_val for x_val, _ in points]
+    y_vals = [y_val for _, y_val in points]
+    x_min = min(x_vals)
+    x_max = max(x_vals)
+    chord = x_max - x_min
+    if chord <= 0:
+        return "Invalid profile data: chord length is zero."
+
+    max_abs_y = max(abs(y_val) for y_val in y_vals) if y_vals else 0.0
+    x_tol = max(chord * 1e-6, 1e-9)
+    y_tol = max(max_abs_y * 1e-4, chord * 1e-6, 1e-9)
+
+    trailing_te = 0
+    for x_val, y_val in reversed(points):
+        if abs(x_val - x_max) <= x_tol and abs(y_val) <= y_tol:
+            trailing_te += 1
+        else:
+            break
+    if trailing_te > 1:
+        return (
+            "CSV ends with repeated trailing-edge points (x near max, y near 0). "
+            "Remove duplicate rows to avoid zero-length errors."
+        )
+
+    first_x, first_y = points[0]
+    if abs(first_x - x_max) > x_tol:
+        return "Profile must start at the trailing edge (x near max)."
+    if first_y < -y_tol:
+        return "Profile must start on the upper surface (y >= 0)."
+
+    last_x, last_y = points[-1]
+    if abs(last_x - x_max) > x_tol:
+        return "Profile must end at the trailing edge (x near max)."
+    if last_y > y_tol:
+        return "Profile must end on the lower surface (y <= 0)."
+
+    signs = []
+    for _, y_val in points:
+        if y_val > y_tol:
+            sign = 1
+        elif y_val < -y_tol:
+            sign = -1
+        else:
+            continue
+        if not signs or sign != signs[-1]:
+            signs.append(sign)
+
+    if not signs:
+        return "Profile points lie on the chord line; expected upper and lower surfaces."
+    if signs[0] != 1:
+        return "Profile must start on the upper surface with positive Y values."
+    if len(signs) > 2 or (len(signs) == 2 and signs[1] != -1):
+        return (
+            "Profile points alternate between upper and lower surfaces. "
+            "Expected all upper points first, then all lower points."
+        )
+
+    le_indices = [
+        idx for idx, (x_val, _) in enumerate(points) if abs(x_val - x_min) <= x_tol
+    ]
+    if not le_indices:
+        return "Leading edge (min X) not found in profile."
+    if not any(abs(points[idx][1]) <= y_tol for idx in le_indices):
+        return "Leading edge (min X) should be near y = 0."
+
+    prev_x = points[0][0]
+    for idx in range(1, le_indices[0] + 1):
+        x_val = points[idx][0]
+        if x_val > prev_x + x_tol:
+            return "Upper surface must move toward the leading edge (x decreasing)."
+        prev_x = x_val
+
+    prev_x = points[le_indices[-1]][0]
+    for idx in range(le_indices[-1] + 1, len(points)):
+        x_val = points[idx][0]
+        if x_val < prev_x - x_tol:
+            return "Lower surface must move toward the trailing edge (x increasing)."
+        prev_x = x_val
+
+    for idx in range(0, le_indices[0] + 1):
+        if points[idx][1] < -y_tol:
+            return (
+                "Upper surface contains negative Y values. "
+                "Expected positive Y values up to the leading edge."
+            )
+    for idx in range(le_indices[-1], len(points)):
+        if points[idx][1] > y_tol:
+            return (
+                "Lower surface contains positive Y values. "
+                "Expected negative Y values after the leading edge."
+            )
+
+    return None
+
+
+def _format_profile_error(message, label):
+    if not label:
+        return message
+    return f"{label}: {message}"
+
+
+def _load_profile_points(file_path, label=None):
+    points = _parse_profile_points(file_path)
+    if len(points) < 2:
+        return None, _format_profile_error(
+            "No valid point pairs found in the CSV file.", label
+        )
+
+    error = _validate_profile_sequence(points)
+    if error:
+        return None, _format_profile_error(error, label)
+
+    return points, None
+
+
 def _scale_points(points, target_depth):
     xs = [x_val for x_val, _ in points]
     min_x = min(xs)
@@ -405,9 +524,9 @@ def command_execute(args: adsk.core.CommandEventArgs):
         ui.messageBox("Second profile CSV is required when a non-zero offset is specified.")
         return
 
-    points = _parse_profile_points(file_path)
-    if len(points) < 2:
-        ui.messageBox("No valid point pairs found in the CSV file for profile 1.")
+    points, error = _load_profile_points(file_path, "Profile 1")
+    if error:
+        ui.messageBox(error)
         return
     try:
         points = _scale_points(points, target_depth)
@@ -420,9 +539,9 @@ def command_execute(args: adsk.core.CommandEventArgs):
 
     points2 = None
     if has_second:
-        points2 = _parse_profile_points(file_path2)
-        if len(points2) < 2:
-            ui.messageBox("No valid point pairs found in the CSV file for profile 2.")
+        points2, error = _load_profile_points(file_path2, "Profile 2")
+        if error:
+            ui.messageBox(error)
             return
         try:
             points2 = _scale_points(points2, target_depth2)
@@ -499,6 +618,13 @@ def command_input_changed(args: adsk.core.InputChangedEventArgs):
     path_input = args.inputs.itemById(path_id)
     if path_input:
         path_input.value = file_dialog.filename
+        label = "Profile 1" if changed_input.id == "browseCsv" else "Profile 2"
+        _, error = _load_profile_points(file_dialog.filename, label)
+        if error:
+            ui.messageBox(error)
+            path_input.value = ""
+            changed_input.value = False
+            return
 
     changed_input.value = False
 
