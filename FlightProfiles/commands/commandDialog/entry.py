@@ -59,28 +59,168 @@ def _parse_profile_points(file_path):
     return points
 
 
-def _validate_profile_sequence(points):
-    if len(points) < 3:
-        return "Not enough points to validate profile order."
-
+def _profile_tolerances(points):
     x_vals = [x_val for x_val, _ in points]
     y_vals = [y_val for _, y_val in points]
     x_min = min(x_vals)
     x_max = max(x_vals)
     chord = x_max - x_min
     if chord <= 0:
-        return "Invalid profile data: chord length is zero."
+        return None
 
     max_abs_y = max(abs(y_val) for y_val in y_vals) if y_vals else 0.0
     x_tol = max(chord * 1e-6, 1e-9)
     y_tol = max(max_abs_y * 1e-4, chord * 1e-6, 1e-9)
+    return x_min, x_max, chord, x_tol, y_tol
 
-    trailing_te = 0
+
+def _trailing_edge_duplicate_count(points, x_max, x_tol, y_tol):
+    count = 0
     for x_val, y_val in reversed(points):
         if abs(x_val - x_max) <= x_tol and abs(y_val) <= y_tol:
-            trailing_te += 1
+            count += 1
         else:
             break
+    return count
+
+
+def _is_interleaved_profile(points, y_tol):
+    signs = []
+    for _, y_val in points:
+        if y_val > y_tol:
+            sign = 1
+        elif y_val < -y_tol:
+            sign = -1
+        else:
+            continue
+        if not signs or sign != signs[-1]:
+            signs.append(sign)
+    return len(signs) > 2
+
+
+def _sort_interleaved_profile(points, x_tol, y_tol):
+    if not points:
+        return None
+
+    sorted_points = sorted(points, key=lambda p: p[0])
+    groups = []
+    current = [sorted_points[0]]
+
+    for point in sorted_points[1:]:
+        if abs(point[0] - current[-1][0]) <= x_tol:
+            current.append(point)
+        else:
+            groups.append(current)
+            current = [point]
+
+    groups.append(current)
+
+    upper_pts = []
+    lower_pts = []
+    for group in groups:
+        x_val = sum(point[0] for point in group) / len(group)
+        ys = [point[1] for point in group]
+        max_y = max(ys)
+        min_y = min(ys)
+        has_pos = max_y > y_tol
+        has_neg = min_y < -y_tol
+
+        if has_pos and has_neg:
+            upper_pts.append((x_val, max_y))
+            lower_pts.append((x_val, min_y))
+        elif has_pos:
+            upper_pts.append((x_val, max_y))
+        elif has_neg:
+            lower_pts.append((x_val, min_y))
+        else:
+            upper_pts.append((x_val, max_y))
+            lower_pts.append((x_val, min_y))
+
+    upper_sorted = sorted(upper_pts, key=lambda p: p[0], reverse=True)
+    lower_sorted = sorted(lower_pts, key=lambda p: p[0])
+
+    if upper_sorted and lower_sorted:
+        upper_le = upper_sorted[-1]
+        lower_le = lower_sorted[0]
+        if (
+            abs(upper_le[0] - lower_le[0]) <= x_tol
+            and abs(upper_le[1] - lower_le[1]) <= y_tol
+        ):
+            lower_sorted = lower_sorted[1:]
+
+    return upper_sorted + lower_sorted
+
+
+def _detect_profile_format(file_path):
+    delimiter = ","
+    decimal_sep = "."
+    include_z = False
+    with open(file_path, "r", newline="") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ";" in line:
+                delimiter = ";"
+                decimal_sep = ","
+            elif "," in line:
+                delimiter = ","
+                decimal_sep = "."
+            else:
+                delimiter = ","
+                decimal_sep = "."
+            parts = [part.strip() for part in line.split(delimiter) if part.strip()]
+            include_z = len(parts) >= 3
+            break
+    return delimiter, decimal_sep, include_z
+
+
+def _write_sorted_profile_file(file_path, points):
+    directory = os.path.dirname(file_path)
+    base_name = os.path.basename(file_path)
+    name, ext = os.path.splitext(base_name)
+    if name.endswith("_sort"):
+        new_name = name
+    else:
+        new_name = f"{name}_sort"
+    new_path = os.path.join(directory, f"{new_name}{ext}")
+
+    delimiter, decimal_sep, include_z = _detect_profile_format(file_path)
+    fmt = "{:.8f}"
+
+    def format_value(value):
+        text = fmt.format(value)
+        if decimal_sep != ".":
+            text = text.replace(".", decimal_sep)
+        return text
+
+    lines = []
+    for x_val, y_val in points:
+        x_text = format_value(x_val)
+        y_text = format_value(y_val)
+        if include_z:
+            z_text = format_value(0.0)
+            lines.append(f"{x_text}{delimiter}{y_text}{delimiter}{z_text}")
+        else:
+            lines.append(f"{x_text}{delimiter}{y_text}")
+
+    with open(new_path, "w", newline="") as handle:
+        handle.write("\n".join(lines))
+        handle.write("\n")
+
+    return new_path
+
+
+def _validate_profile_sequence(points):
+    if len(points) < 3:
+        return "Not enough points to validate profile order."
+
+    tolerances = _profile_tolerances(points)
+    if not tolerances:
+        return "Invalid profile data: chord length is zero."
+    x_min, x_max, _, x_tol, y_tol = tolerances
+
+    trailing_te = _trailing_edge_duplicate_count(points, x_max, x_tol, y_tol)
     if trailing_te > 1:
         return (
             "CSV ends with repeated trailing-edge points (x near max, y near 0). "
@@ -169,13 +309,44 @@ def _load_profile_points(file_path, label=None):
     if len(points) < 2:
         return None, _format_profile_error(
             "No valid point pairs found in the CSV file.", label
-        )
+        ), file_path, None
+
+    tolerances = _profile_tolerances(points)
+    if not tolerances:
+        return None, _format_profile_error(
+            "Invalid profile data: chord length is zero.", label
+        ), file_path, None
+    _, x_max, _, x_tol, y_tol = tolerances
+
+    corrections = []
+    trailing_te = _trailing_edge_duplicate_count(points, x_max, x_tol, y_tol)
+    if trailing_te > 1:
+        points = points[: -(trailing_te - 1)]
+        corrections.append("Removed repeated trailing-edge rows.")
+
+    if _is_interleaved_profile(points, y_tol):
+        sorted_points = _sort_interleaved_profile(points, x_tol, y_tol)
+        if not sorted_points:
+            return None, _format_profile_error(
+                "Unable to sort interleaved profile points.", label
+            ), file_path, None
+        points = sorted_points
+        corrections.append("Interleaved points were sorted.")
 
     error = _validate_profile_sequence(points)
     if error:
-        return None, _format_profile_error(error, label)
+        return None, _format_profile_error(error, label), file_path, None
 
-    return points, None
+    if corrections:
+        try:
+            new_path = _write_sorted_profile_file(file_path, points)
+        except OSError as exc:
+            return None, _format_profile_error(
+                f"Unable to write corrected CSV file: {exc}", label
+            ), file_path, None
+        return points, None, new_path, " ".join(corrections)
+
+    return points, None, file_path, None
 
 
 def _scale_points(points, target_depth):
@@ -524,10 +695,16 @@ def command_execute(args: adsk.core.CommandEventArgs):
         ui.messageBox("Second profile CSV is required when a non-zero offset is specified.")
         return
 
-    points, error = _load_profile_points(file_path, "Profile 1")
+    points, error, effective_path, correction_note = _load_profile_points(
+        file_path, "Profile 1"
+    )
     if error:
         ui.messageBox(error)
         return
+    if correction_note:
+        file_path = effective_path
+        path_input.value = effective_path
+        ui.messageBox(f"Profile 1: {correction_note}\nSaved to:\n{effective_path}")
     try:
         points = _scale_points(points, target_depth)
     except ValueError as exc:
@@ -539,10 +716,18 @@ def command_execute(args: adsk.core.CommandEventArgs):
 
     points2 = None
     if has_second:
-        points2, error = _load_profile_points(file_path2, "Profile 2")
+        points2, error, effective_path2, correction_note2 = _load_profile_points(
+            file_path2, "Profile 2"
+        )
         if error:
             ui.messageBox(error)
             return
+        if correction_note2:
+            file_path2 = effective_path2
+            path_input2.value = effective_path2
+            ui.messageBox(
+                f"Profile 2: {correction_note2}\nSaved to:\n{effective_path2}"
+            )
         try:
             points2 = _scale_points(points2, target_depth2)
         except ValueError as exc:
@@ -619,12 +804,17 @@ def command_input_changed(args: adsk.core.InputChangedEventArgs):
     if path_input:
         path_input.value = file_dialog.filename
         label = "Profile 1" if changed_input.id == "browseCsv" else "Profile 2"
-        _, error = _load_profile_points(file_dialog.filename, label)
+        _, error, effective_path, correction_note = _load_profile_points(
+            file_dialog.filename, label
+        )
         if error:
             ui.messageBox(error)
             path_input.value = ""
             changed_input.value = False
             return
+        path_input.value = effective_path
+        if correction_note:
+            ui.messageBox(f"{label}: {correction_note}\nSaved to:\n{effective_path}")
 
     changed_input.value = False
 
