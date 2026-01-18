@@ -21,6 +21,38 @@ CSV-Pruefung und Korrektur:
 - Wenn Punkte zwischen Ober- und Unterseite springen oder die Datei mit mehrfachen Hinterkanten-Zeilen endet, schreibt das Add-in eine korrigierte Datei mit dem Suffix `_sort` und verwendet diese automatisch.
 - Die korrigierte Datei behaelt Trennzeichen/Dezimalformat bei und schreibt Z=0, wenn die Quelle drei Spalten enthaelt.
 
+## Schraenkung (Washout)
+Wenn das aeussere Profil einen anderen Anstellwinkel als das innere hat, spricht man von Schraenkung (Washout). Der Winkel wird immer zwischen den beiden Profilsehnen gemessen (Nasenleiste zu Hinterkante).
+
+Wo dreht man:
+- Nasenleiste (x=0): am einfachsten; die Vorderkante bleibt gerade, die Hinterkante wandert bei negativer Schraenkung nach oben.
+- Holm (z.B. 25% oder 30% Profiltiefe): der Holm bleibt gerade und muss nicht verdreht werden.
+- Mitte: geometrisch moeglich, aber bautechnisch ungewoehnlich, da beide Kanten kurvig werden.
+
+Negative Schraenkung ist haeufig, damit der Innenfluegel zuerst abreisst und die Querruder aussen laenger wirksam bleiben.
+
+## Pfeilung
+Die Pfeilung ist der Winkel, in dem die Tragflaeche zur Querachse nach hinten (oder selten nach vorn) geneigt ist. Gemessen wird oft an der Nasenleiste oder an der 25%-Linie.
+
+Warum pfeilt man:
+- Bei hohen Geschwindigkeiten sinkt die effektive Machzahl am Profil, der Widerstandsanstieg wird spaeter erreicht.
+- Im Modellbau ist Pfeilung oft eine Frage von Schwerpunkt, Stabilitaet bei Nurflueglern oder Optik.
+
+Vor- und Nachteile:
+- Vorteile: hoehere Reisegeschwindigkeit, spaeterer Widerstandsanstieg, leichte Gier-Stabilisierung.
+- Nachteile: schlechteres Langsamflugverhalten, hoehere Stall-Geschwindigkeit, Tendenz zum Abriss aussen.
+
+## Profilstrak
+Ein Profilstrak ist der fliessende Uebergang zwischen zwei oder mehr Profilen entlang der Spannweite (von der Wurzel zum Randbogen).
+
+Warum:
+- Aerodynamik: Auftrieb besser verteilen, Abriss aussen spaeter.
+- Struktur: dickeres Profil innen fuer den Holm, duennere Profile aussen fuer weniger Widerstand.
+
+Arten:
+- Geometrisch: gleiche Profilfamilie, aber Skalierung oder Schraenkung (Zuspitzung, Verdrehung).
+- Aerodynamisch: Profilform aendert sich (Woelbung oder Dicke).
+
 ## Versionierung
 - Version in `FlightProfiles/version.py` pflegen.
 - `FlightProfiles/FlightProfiles.manifest` und `version.md` synchron halten.
