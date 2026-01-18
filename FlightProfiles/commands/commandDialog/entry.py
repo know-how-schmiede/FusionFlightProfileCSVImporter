@@ -12,7 +12,7 @@ ui = app.userInterface
 
 CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_importAirfoilCsv'
 CMD_NAME = 'Import Airfoil CSV'
-CMD_DESCRIPTION = f'Import an airfoil profile CSV into a selected sketch. (v{config.VERSION})'
+CMD_DESCRIPTION = f'Import an airfoil profile CSV onto a selected plane. (v{config.VERSION})'
 
 IS_PROMOTED = True
 
@@ -178,6 +178,50 @@ def _cleanup_trailing_edge(points, x_tol, y_tol):
         lower_clean = lower_clean[1:]
 
     return upper + lower_clean, True
+
+
+def _alignment_angle_to_global_z(sketch):
+    try:
+        x_dir = sketch.xDirection
+        y_dir = sketch.yDirection
+    except AttributeError:
+        return 0.0
+    if x_dir.length == 0 or y_dir.length == 0:
+        return 0.0
+    x_dir.normalize()
+    y_dir.normalize()
+
+    normal = x_dir.crossProduct(y_dir)
+    if normal.length == 0:
+        return 0.0
+    normal.normalize()
+
+    global_z = adsk.core.Vector3D.create(0, 0, 1)
+    dot = global_z.dotProduct(normal)
+    proj = adsk.core.Vector3D.create(
+        global_z.x - normal.x * dot,
+        global_z.y - normal.y * dot,
+        global_z.z - normal.z * dot,
+    )
+    if proj.length == 0:
+        return 0.0
+    proj.normalize()
+
+    tx = proj.dotProduct(x_dir)
+    ty = proj.dotProduct(y_dir)
+    if abs(tx) < 1e-12 and abs(ty) < 1e-12:
+        return 0.0
+
+    return math.atan2(ty, tx) - (math.pi / 2.0)
+
+
+def _rotate_point_2d(point, angle_rad):
+    if abs(angle_rad) < 1e-12:
+        return point
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    x_val, y_val = point
+    return (x_val * cos_a - y_val * sin_a, x_val * sin_a + y_val * cos_a)
 
 
 def _sort_interleaved_profile(points, x_tol, y_tol):
@@ -620,10 +664,14 @@ def _create_offset_plane(component, base_plane, offset_value):
     return planes.add(plane_input)
 
 
-def _draw_profile(sketch, points, rotation_rad=0.0, pivot=None):
+def _draw_profile(sketch, points, rotation_rad=0.0, pivot=None, align_angle=0.0):
     lower_pts, upper_pts = _split_profile(points)
     if len(lower_pts) < 2 or len(upper_pts) < 2:
         raise ValueError("Not enough points to build upper and lower curves.")
+
+    if abs(align_angle) > 1e-12:
+        lower_pts = _rotate_points(lower_pts, align_angle, (0.0, 0.0))
+        upper_pts = _rotate_points(upper_pts, align_angle, (0.0, 0.0))
 
     if pivot is not None and abs(rotation_rad) > 1e-12:
         lower_pts = _rotate_points(lower_pts, rotation_rad, pivot)
@@ -707,19 +755,14 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     try:
         inputs = args.command.commandInputs
 
-        sketch_input = inputs.addSelectionInput(
-            "targetSketch",
-            "Target Sketch or Plane",
-            "Select a sketch, construction plane, or planar face for the first profile.",
+        plane_input = inputs.addSelectionInput(
+            "targetPlane",
+            "Target Plane",
+            "Select a construction plane or planar face for the first profile.",
         )
-        sketch_input.addSelectionFilter("Sketches")
-        sketch_input.addSelectionFilter("ConstructionPlanes")
-        sketch_input.addSelectionFilter("PlanarFaces")
-        sketch_input.setSelectionLimits(1, 1)
-
-        active_sketch = adsk.fusion.Sketch.cast(app.activeEditObject)
-        if active_sketch:
-            sketch_input.addSelection(active_sketch)
+        plane_input.addSelectionFilter("ConstructionPlanes")
+        plane_input.addSelectionFilter("PlanarFaces")
+        plane_input.setSelectionLimits(1, 1)
 
         units_manager = app.activeProduct.unitsManager if app.activeProduct else None
         default_units = units_manager.defaultLengthUnits if units_manager else "cm"
@@ -760,11 +803,11 @@ def command_execute(args: adsk.core.CommandEventArgs):
     futil.log(f'{CMD_NAME} Command Execute Event')
 
     inputs = args.command.commandInputs
-    sketch_input = inputs.itemById("targetSketch")
+    plane_input = inputs.itemById("targetPlane")
     path_input = inputs.itemById("csvPath")
 
-    if sketch_input.selectionCount < 1:
-        ui.messageBox("Select a sketch or plane to receive the profile.")
+    if plane_input.selectionCount < 1:
+        ui.messageBox("Select a construction plane or planar face to receive the profile.")
         return
 
     file_path = path_input.value
@@ -823,7 +866,7 @@ def command_execute(args: adsk.core.CommandEventArgs):
         return
     if mirror_profile:
         points = [(x_val, -y_val) for x_val, y_val in points]
-    lead_edge = _compute_leading_edge(points)
+    lead_edge = None
 
     points2 = None
     if has_second:
@@ -847,8 +890,12 @@ def command_execute(args: adsk.core.CommandEventArgs):
         if mirror_profile2:
             points2 = [(x_val, -y_val) for x_val, y_val in points2]
 
-    selection_entity = sketch_input.selection(0).entity
-    sketch = adsk.fusion.Sketch.cast(selection_entity)
+    selection_entity = plane_input.selection(0).entity
+    if not adsk.fusion.ConstructionPlane.cast(selection_entity) and not adsk.fusion.BRepFace.cast(
+        selection_entity
+    ):
+        ui.messageBox("Select a construction plane or planar face to receive the profile.")
+        return
 
     design = adsk.fusion.Design.cast(app.activeProduct)
     if not design:
@@ -856,13 +903,14 @@ def command_execute(args: adsk.core.CommandEventArgs):
         return
     component = design.activeComponent
 
-    if not sketch:
-        sketch = component.sketches.add(selection_entity)
+    sketch = component.sketches.add(selection_entity)
+    align_angle = _alignment_angle_to_global_z(sketch)
+    lead_edge = _compute_leading_edge(points)
 
     sketch.name = _profile_name_from_path(file_path)
 
     try:
-        _draw_profile(sketch, points)
+        _draw_profile(sketch, points, align_angle=align_angle)
     except ValueError as exc:
         ui.messageBox(str(exc))
         return
@@ -872,8 +920,16 @@ def command_execute(args: adsk.core.CommandEventArgs):
         offset_plane = _create_offset_plane(component, base_plane, offset_value)
         sketch2 = component.sketches.add(offset_plane)
         sketch2.name = _profile_name_from_path(file_path2)
+        align_angle2 = _alignment_angle_to_global_z(sketch2)
+        pivot = _rotate_point_2d(lead_edge, align_angle2)
         try:
-            _draw_profile(sketch2, points2, rotation_rad=-angle_value2, pivot=lead_edge)
+            _draw_profile(
+                sketch2,
+                points2,
+                rotation_rad=-angle_value2,
+                pivot=pivot,
+                align_angle=align_angle2,
+            )
         except ValueError as exc:
             ui.messageBox(str(exc))
             return

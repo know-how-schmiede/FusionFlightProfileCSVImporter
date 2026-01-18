@@ -1,5 +1,15 @@
 # Changes
 
+## Version 0.3.2 - 2026-01-18
+
+- Y-Richtung entspricht +Z Fusion Welt
+- Auswahl nur noch Ebenen (keine Skizzen mehr auswählbar, wegen verdrehtem Koordinaten-System)
+
+## Version 0.3.1 - 2026-01-18
+
+- Optimierung Import CSV, springende Punkte und Null-Lägen-Fehler erkennen, Fehlermeldung vor Operations Ausführung
+- Korrektur der CSV-Datei, neue Datei erstellen -> "xxx_sort.csv"
+
 ## Version 0.3.0 - 2026-01-17
 
 - Option Schränkung
