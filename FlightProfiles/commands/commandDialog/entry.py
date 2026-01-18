@@ -98,8 +98,97 @@ def _is_interleaved_profile(points, y_tol):
     return len(signs) > 2
 
 
+def _median_dx(points):
+    if len(points) < 3:
+        return 0.0
+    dxs = [
+        points[idx + 1][0] - points[idx][0] for idx in range(len(points) - 1)
+    ]
+    dxs = [dx for dx in dxs if dx > 0]
+    if not dxs:
+        return 0.0
+    dxs.sort()
+    return dxs[len(dxs) // 2]
+
+
+def _collapse_trailing_edge(points, x_max, window, pair_tol, keep_upper):
+    if window <= 0 or pair_tol <= 0 or len(points) < 3:
+        return points
+    threshold = x_max - window
+    collapsed = []
+    for x_val, y_val in points:
+        if x_val < threshold:
+            collapsed.append((x_val, y_val))
+            continue
+        if collapsed and abs(x_val - collapsed[-1][0]) <= pair_tol:
+            if keep_upper:
+                if y_val > collapsed[-1][1]:
+                    collapsed[-1] = (x_val, y_val)
+            else:
+                if y_val < collapsed[-1][1]:
+                    collapsed[-1] = (x_val, y_val)
+        else:
+            collapsed.append((x_val, y_val))
+    return collapsed
+
+
+def _cleanup_trailing_edge(points, x_tol, y_tol):
+    if len(points) < 6:
+        return points, False
+
+    min_idx = min(range(len(points)), key=lambda idx: points[idx][0])
+    if min_idx == 0 or min_idx == len(points) - 1:
+        return points, False
+
+    upper = points[:min_idx + 1]
+    lower = points[min_idx:]
+    lower_sorted = sorted(lower, key=lambda p: p[0])
+
+    x_vals = [x_val for x_val, _ in points]
+    x_min = min(x_vals)
+    x_max = max(x_vals)
+    chord = x_max - x_min
+    if chord <= 0:
+        return points, False
+
+    edge_window = chord * 0.02
+    ys = [y_val for x_val, y_val in lower_sorted if x_val >= x_max - edge_window]
+    if len(ys) < 4:
+        return points, False
+
+    signs = []
+    for idx in range(1, len(ys)):
+        dy = ys[idx] - ys[idx - 1]
+        if abs(dy) <= y_tol:
+            continue
+        sign = 1 if dy > 0 else -1
+        if not signs or sign != signs[-1]:
+            signs.append(sign)
+
+    if len(signs) < 2:
+        return points, False
+
+    median_dx = _median_dx(lower_sorted)
+    pair_tol = max(x_tol, median_dx * 0.5) if median_dx > 0 else x_tol
+    lower_clean = _collapse_trailing_edge(
+        lower_sorted, x_max, edge_window, pair_tol, keep_upper=False
+    )
+
+    if lower_clean and upper and lower_clean[0] == upper[-1]:
+        lower_clean = lower_clean[1:]
+
+    return upper + lower_clean, True
+
+
 def _sort_interleaved_profile(points, x_tol, y_tol):
     if not points:
+        return None
+
+    x_vals = [x_val for x_val, _ in points]
+    x_min = min(x_vals)
+    x_max = max(x_vals)
+    chord = x_max - x_min
+    if chord <= 0:
         return None
 
     sorted_points = sorted(points, key=lambda p: p[0])
@@ -138,6 +227,18 @@ def _sort_interleaved_profile(points, x_tol, y_tol):
 
     upper_sorted = sorted(upper_pts, key=lambda p: p[0], reverse=True)
     lower_sorted = sorted(lower_pts, key=lambda p: p[0])
+
+    edge_window = chord * 0.02
+    upper_dx = _median_dx(sorted(upper_sorted, key=lambda p: p[0]))
+    lower_dx = _median_dx(lower_sorted)
+    upper_tol = max(x_tol, upper_dx * 0.5) if upper_dx > 0 else x_tol
+    lower_tol = max(x_tol, lower_dx * 0.5) if lower_dx > 0 else x_tol
+    upper_sorted = _collapse_trailing_edge(
+        upper_sorted, x_max, edge_window, upper_tol, keep_upper=True
+    )
+    lower_sorted = _collapse_trailing_edge(
+        lower_sorted, x_max, edge_window, lower_tol, keep_upper=False
+    )
 
     if upper_sorted and lower_sorted:
         upper_le = upper_sorted[-1]
@@ -218,7 +319,7 @@ def _validate_profile_sequence(points):
     tolerances = _profile_tolerances(points)
     if not tolerances:
         return "Invalid profile data: chord length is zero."
-    x_min, x_max, _, x_tol, y_tol = tolerances
+    x_min, x_max, chord, x_tol, y_tol = tolerances
 
     trailing_te = _trailing_edge_duplicate_count(points, x_max, x_tol, y_tol)
     if trailing_te > 1:
@@ -227,14 +328,20 @@ def _validate_profile_sequence(points):
             "Remove duplicate rows to avoid zero-length errors."
         )
 
+    te_tol = max(x_tol, chord * 0.02)
+    upper_candidates = [x_val for x_val, y_val in points if y_val >= -y_tol]
+    lower_candidates = [x_val for x_val, y_val in points if y_val <= y_tol]
+    x_max_upper = max(upper_candidates) if upper_candidates else x_max
+    x_max_lower = max(lower_candidates) if lower_candidates else x_max
+
     first_x, first_y = points[0]
-    if abs(first_x - x_max) > x_tol:
+    if abs(first_x - x_max_upper) > te_tol:
         return "Profile must start at the trailing edge (x near max)."
     if first_y < -y_tol:
         return "Profile must start on the upper surface (y >= 0)."
 
     last_x, last_y = points[-1]
-    if abs(last_x - x_max) > x_tol:
+    if abs(last_x - x_max_lower) > te_tol:
         return "Profile must end at the trailing edge (x near max)."
     if last_y > y_tol:
         return "Profile must end on the lower surface (y <= 0)."
@@ -332,6 +439,10 @@ def _load_profile_points(file_path, label=None):
             ), file_path, None
         points = sorted_points
         corrections.append("Interleaved points were sorted.")
+
+    points, te_fixed = _cleanup_trailing_edge(points, x_tol, y_tol)
+    if te_fixed:
+        corrections.append("Collapsed trailing-edge oscillations.")
 
     error = _validate_profile_sequence(points)
     if error:
