@@ -12,7 +12,8 @@ ui = app.userInterface
 
 CMD_ID = f'{config.COMPANY_NAME}_{config.ADDIN_NAME}_importAirfoilCsv'
 CMD_NAME = 'Import Airfoil CSV'
-CMD_DESCRIPTION = f'Import an airfoil profile CSV onto a selected plane. (v{config.VERSION})'
+CMD_DESCRIPTION = "Fusion 360 add-in to import an airfoil profile CSV into a selected sketch or plane and create a closed profile."
+CMD_TOOLTIP = f"Import an airfoil profile CSV onto a selected plane.\n(v{config.VERSION})"
 
 IS_PROMOTED = True
 
@@ -21,6 +22,7 @@ PANEL_ID = 'SolidCreatePanel'
 
 ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', '')
 LOGO_IMAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', 'logo.png')
+TOOLCLIP_IMAGE = LOGO_IMAGE
 
 local_handlers = []
 
@@ -728,6 +730,20 @@ def start():
     cmd_def = ui.commandDefinitions.addButtonDefinition(
         CMD_ID, CMD_NAME, CMD_DESCRIPTION, ICON_FOLDER
     )
+    if hasattr(cmd_def, "toolTip"):
+        cmd_def.toolTip = CMD_NAME
+    if hasattr(cmd_def, "toolTipDescription"):
+        cmd_def.toolTipDescription = CMD_TOOLTIP
+    elif hasattr(cmd_def, "tooltipDescription"):
+        cmd_def.tooltipDescription = CMD_TOOLTIP
+    if os.path.isfile(TOOLCLIP_IMAGE):
+        try:
+            if hasattr(cmd_def, "toolClipFilename"):
+                cmd_def.toolClipFilename = TOOLCLIP_IMAGE
+            elif hasattr(cmd_def, "toolClipFileName"):
+                cmd_def.toolClipFileName = TOOLCLIP_IMAGE
+        except Exception:
+            futil.log(f"{CMD_NAME}: Unable to set tool clip image.", force_console=True)
 
     futil.add_handler(cmd_def.commandCreated, command_created)
 
@@ -757,19 +773,14 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
         inputs = args.command.commandInputs
 
         if os.path.isfile(LOGO_IMAGE):
-            try:
-                logo_input = inputs.addImageCommandInput("logoImage", "", LOGO_IMAGE)
-                if hasattr(logo_input, "isFullWidth"):
-                    logo_input.isFullWidth = True
-            except AttributeError:
-                file_url = LOGO_IMAGE.replace("\\", "/")
-                if not file_url.lower().startswith("file:///"):
-                    file_url = f"file:///{file_url}"
-                html = (
-                    f'<img src="{file_url}" alt="Logo" '
-                    'style="max-width:100%; height:auto;" />'
-                )
-                inputs.addTextBoxCommandInput("logoImage", "", html, 3, True)
+            file_url = LOGO_IMAGE.replace("\\", "/")
+            if not file_url.lower().startswith("file:///"):
+                file_url = f"file:///{file_url}"
+            html = (
+                f'<img src="{file_url}" alt="Logo" '
+                'style="max-width:100%; height:auto;" />'
+            )
+            inputs.addTextBoxCommandInput("logoImage", " ", html, 3, True)
 
         plane_input = inputs.addSelectionInput(
             "targetPlane",
