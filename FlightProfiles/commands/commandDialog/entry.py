@@ -19,7 +19,8 @@ IS_PROMOTED = True
 WORKSPACE_ID = 'FusionSolidEnvironment'
 PANEL_ID = 'SolidCreatePanel'
 
-ICON_FOLDER = ''
+ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', '')
+LOGO_IMAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', 'logo.png')
 
 local_handlers = []
 
@@ -754,6 +755,21 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
 
     try:
         inputs = args.command.commandInputs
+
+        if os.path.isfile(LOGO_IMAGE):
+            try:
+                logo_input = inputs.addImageCommandInput("logoImage", "", LOGO_IMAGE)
+                if hasattr(logo_input, "isFullWidth"):
+                    logo_input.isFullWidth = True
+            except AttributeError:
+                file_url = LOGO_IMAGE.replace("\\", "/")
+                if not file_url.lower().startswith("file:///"):
+                    file_url = f"file:///{file_url}"
+                html = (
+                    f'<img src="{file_url}" alt="Logo" '
+                    'style="max-width:100%; height:auto;" />'
+                )
+                inputs.addTextBoxCommandInput("logoImage", "", html, 3, True)
 
         plane_input = inputs.addSelectionInput(
             "targetPlane",

@@ -1,5 +1,10 @@
 # Changes
 
+## Version 0.3.3 - 2026-01-20
+
+- fix: Manifest
+- Icons und Logo
+
 ## Version 0.3.2 - 2026-01-18
 
 - Y-Richtung entspricht +Z Fusion Welt
